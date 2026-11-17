@@ -10,6 +10,11 @@ const APP_NAME = process.env.APP_NAME || 'Express API';
 const APP_VERSION = process.env.APP_VERSION || '1.0.0';
 const START_TIME = new Date();
 
+const API_BASE_URL = process.env.API_BASE_URL;
+const API_TIMEOUT = Number(process.env.API_TIMEOUT || 5000);
+const ENABLE_EXTERNAL_API =
+    process.env.ENABLE_EXTERNAL_API === 'true';
+
 app.use(express.json());
 
 // Request tracking and basic logging
@@ -119,6 +124,61 @@ app.get('/test/delay', async (req, res) => {
         delayMs: delay
     });
 });
+
+// External API test
+app.get('/test/external-api', async (req, res) => {
+    if (!ENABLE_EXTERNAL_API) {
+        return res.status(503).json({
+            success: false,
+            message: 'External API integration is disabled'
+        });
+    }
+
+    if (!API_BASE_URL) {
+        return res.status(500).json({
+            success: false,
+            message: 'API_BASE_URL is not configured'
+        });
+    }
+
+    const controller = new AbortController();
+
+    const timeout = setTimeout(
+        () => controller.abort(),
+        API_TIMEOUT
+    );
+
+    try {
+        const response = await fetch(
+            `${API_BASE_URL}/posts/1`,
+            {
+                signal: controller.signal
+            }
+        );
+
+        const data = await response.json();
+
+        res.status(200).json({
+            success: response.ok,
+            upstreamStatus: response.status,
+            data
+        });
+
+    } catch (error) {
+        res.status(
+            error.name === 'AbortError' ? 504 : 502
+        ).json({
+            success: false,
+            error: error.name === 'AbortError'
+                ? 'External API timeout'
+                : 'External API connection failed'
+        });
+
+    } finally {
+        clearTimeout(timeout);
+    }
+});
+
 
 // Simulate application errors
 app.get('/test/error', (req, res) => {
